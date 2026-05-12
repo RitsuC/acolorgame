@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>A Color Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Itim&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html {
+      width: 100%;
+      overflow-x: hidden;
+    }
+    body {
+      width: 100%;
+      overflow-x: hidden;
+      /* Full-page gradient background visible through top & bot modules */
+      background: linear-gradient(to bottom, #1E1E27, #2C2495, #262582, #5A588D);
+      background-attachment: fixed;
+    }
+
+    /* ── Layout: three vertical modules ── */
+    #module-top,
+    #module-mid,
+    #module-bot {
+      width: 100%;
+      position: relative;
+    }
+
+    /* Top: fixed aspect ratio 3840×450 — transparent */
+    #module-top {
+      /* height driven by JS */
+      background: transparent;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    /* Mid: fixed aspect ratio 3840×2160 */
+    #module-mid {
+      /* height driven by JS */
+      overflow: hidden;
+    }
+
+    /* Bot: remaining viewport height (or min) — transparent */
+    #module-bot {
+      background: transparent;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      /* top padding and text positions driven by JS */
+    }
+
+    /* ── TOP MODULE ── */
+    #logo {
+      position: absolute;
+      /* left/top driven by JS */
+    }
+    #logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+    #btn-sound {
+      position: absolute;
+      cursor: pointer;
+      border: none;
+      background: none;
+      padding: 0;
+      transition: filter 0.18s ease;
+      /* right/top driven by JS */
+    }
+    #btn-sound:hover { filter: brightness(1.08) drop-shadow(0 4px 12px rgba(0,0,0,0.18)); }
+    #btn-sound:active { filter: brightness(0.95); }
+    #btn-sound img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+    /* ── MID MODULE ── */
+    #bg-wrap {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      perspective: 1200px;
+      overflow: hidden;
+    }
+    .bg {
+      width: 105%;
+      margin-left: -2.5%;
+      height: 105%;
+      margin-top: -2.5%;
+      background-image: url('bg_0.png');
+      background-size: 100% 100%;
+      background-position: top left;
+      background-repeat: no-repeat;
+      transform-origin: center center;
+      transition: transform 0.12s ease-out;
+      will-change: transform;
+    }
+
+    #bg1 {
+      position: absolute;
+      pointer-events: none;
+      /* left/top/width driven by JS */
+    }
+    #bg1 img { width: 100%; height: auto; display: block; }
+
+    .btn {
+      position: absolute;
+      cursor: pointer;
+      transition: filter 0.18s ease;
+      text-decoration: none;
+      border: none;
+      background: none;
+      padding: 0;
+    }
+    .btn:hover { filter: brightness(1.08) drop-shadow(0 8px 24px rgba(0,0,0,0.18)); }
+    .btn:active { filter: brightness(0.95); }
+    .btn img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+    #scratch-canvas {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 10;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    /* ── BOT MODULE ── */
+    #text-title, #text-studio {
+      color: #ffffff;
+      font-family: 'Itim', cursive;
+      text-align: center;
+      position: absolute;
+      left: 0; width: 100%;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- TOP MODULE -->
+  <div id="module-top">
+    <div id="logo"><img src="logo.png" alt="A Color Game logo" /></div>
+    <button id="btn-sound">
+      <img id="btn-sound-img" src="btn_soundsetting_open.png" alt="Sound toggle" />
+    </button>
+  </div>
+
+  <!-- MID MODULE -->
+  <div id="module-mid">
+    <div id="bg-wrap"><div class="bg" id="bg"></div></div>
+    <div id="bg1"><img src="bg_1.png" alt="" /></div>
+
+    <a class="btn" id="btn1" href="https://ritttsu.itch.io/a-color-game" target="_blank" rel="noopener">
+      <img src="btn_playthegame.png" alt="Play the game" />
+    </a>
+    <a class="btn" id="btn2" href="https://www.youtube.com/@Ritttsu37" target="_blank" rel="noopener">
+      <img src="btn_devlog.png" alt="Watch the devlog" />
+    </a>
+    <a class="btn" id="btn3" href="https://discord.gg/EJ246FPc2g" target="_blank" rel="noopener">
+      <img src="btn_discord.png" alt="Join our Discord" />
+    </a>
+
+    <canvas id="scratch-canvas"></canvas>
+  </div>
+
+  <!-- BOT MODULE -->
+  <div id="module-bot">
+    <div id="text-title">a color game</div>
+    <div id="text-studio">dimsum studio</div>
+  </div>
+
+  <audio id="bgm" src="BGM_Museum.mp3" loop preload="auto"></audio>
+
+  <script>
+    // ── Reference dimensions (design space) ──
+    const REF_W  = 3840;
+    const TOP_H  = 450;   // top module height in ref
+    const MID_H  = 2160;  // mid module height in ref
+    // bot height is flexible
+
+    // ── Top module reference positions ──
+    const LOGO = { x: 65, y: 85, w: 565, h: 300 };
+    // Sound btn: right edge = REF_W - 140, top = 140, size 160×160
+    const SOUND = { w: 160, h: 160, rightMargin: 140, topMargin: 140 };
+
+    // ── Mid module reference positions (relative to mid module top) ──
+    const BG1  = { w: 2240, h: 1185, cx: REF_W / 2, topFromMid: 150 };
+    // Buttons: position = left from page left, bottom from mid module bottom
+    const BTN1 = { x: 615,  bottomFromMid: 430, w: 830, h: 360 };
+    const BTN2 = { x: 1549, bottomFromMid: 305, w: 980, h: 390 };
+    const BTN3 = { x: 2500, bottomFromMid: 450, w: 630, h: 377 };
+
+    // ── Bot module reference text ──
+    const TITLE_FONT   = 120;
+    const STUDIO_FONT  = 80;
+    const TITLE_TOP    = 95;   // from bot top
+    const STUDIO_GAP   = 50;   // gap between title bottom and studio top
+
+    function getScale() { return window.innerWidth / REF_W; }
+
+    function layoutAll() {
+      const scale  = getScale();
+      const topH   = TOP_H  * scale;
+      const midH   = MID_H  * scale;
+      const vp     = window.innerHeight;
+      const botH   = Math.max(vp - topH - midH, 200 * scale);
+
+      // ── TOP ──
+      const modTop = document.getElementById('module-top');
+      modTop.style.height = topH + 'px';
+
+      const logo = document.getElementById('logo');
+      logo.style.left   = (LOGO.x * scale) + 'px';
+      logo.style.top    = (LOGO.y * scale) + 'px';
+      logo.style.width  = (LOGO.w * scale) + 'px';
+      logo.style.height = (LOGO.h * scale) + 'px';
+
+      const sBtn = document.getElementById('btn-sound');
+      const sw = SOUND.w * scale, sh = SOUND.h * scale;
+      sBtn.style.width  = sw + 'px';
+      sBtn.style.height = sh + 'px';
+      sBtn.style.right  = (SOUND.rightMargin * scale) + 'px';
+      sBtn.style.top    = (SOUND.topMargin   * scale) + 'px';
+
+      // ── MID ──
+      const modMid = document.getElementById('module-mid');
+      modMid.style.height = midH + 'px';
+
+      // bg1
+      const bg1El = document.getElementById('bg1');
+      const bg1W  = BG1.w * scale;
+      const bg1H  = BG1.h * scale;
+      bg1El.style.width  = bg1W + 'px';
+      bg1El.style.height = bg1H + 'px';
+      bg1El.style.left   = ((REF_W / 2 - BG1.w / 2) * scale) + 'px';
+      bg1El.style.top    = (BG1.topFromMid * scale) + 'px';
+
+      // btns (bottom anchor within mid module)
+      const applyBtn = (id, def) => {
+        const el = document.getElementById(id);
+        el.style.left   = (def.x * scale) + 'px';
+        el.style.top    = (midH - def.bottomFromMid * scale - def.h * scale) + 'px';
+        el.style.width  = (def.w * scale) + 'px';
+        el.style.height = (def.h * scale) + 'px';
+      };
+      applyBtn('btn1', BTN1);
+      applyBtn('btn2', BTN2);
+      applyBtn('btn3', BTN3);
+
+      // scratch canvas
+      const canvas = document.getElementById('scratch-canvas');
+      if (canvas.width !== window.innerWidth || canvas.height !== midH) {
+        const oldCtx = canvas.getContext('2d');
+        // save image data then resize
+        canvas.width  = window.innerWidth;
+        canvas.height = midH;
+        mask.width    = window.innerWidth;
+        mask.height   = midH;
+        mctx.fillStyle = '#000';
+        mctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawCover();
+      }
+
+      // ── BOT ──
+      const modBot = document.getElementById('module-bot');
+      modBot.style.height = botH + 'px';
+
+      const tSize   = TITLE_FONT  * scale;
+      const sSize   = STUDIO_FONT * scale;
+      const tTop    = TITLE_TOP   * scale;
+      const gap     = STUDIO_GAP  * scale;
+
+      const titleEl  = document.getElementById('text-title');
+      const studioEl = document.getElementById('text-studio');
+
+      titleEl.style.fontSize = tSize + 'px';
+      titleEl.style.top      = tTop + 'px';
+
+      studioEl.style.fontSize = sSize + 'px';
+      studioEl.style.top      = (tTop + tSize + gap) + 'px';
+    }
+
+    // ── Scratch canvas ──
+    const canvas = document.getElementById('scratch-canvas');
+    const ctx    = canvas.getContext('2d');
+    const BRUSH_SIZE = 48;
+
+    const mask = document.createElement('canvas');
+    const mctx = mask.getContext('2d');
+
+    const coverImg = new Image();
+    coverImg.src = 'drawingcover.png';
+    coverImg.onload  = () => { layoutAll(); drawCover(); };
+    coverImg.onerror = () => { layoutAll(); };
+
+    function drawCover() {
+      const cw = canvas.width;
+      const ch = canvas.height;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, cw, ch);
+      if (coverImg.complete && coverImg.naturalWidth > 0) {
+        const iw = coverImg.naturalWidth, ih = coverImg.naturalHeight;
+        ctx.drawImage(coverImg, 0, 0, cw, ih * (cw / iw));
+      }
+      mctx.fillStyle = '#000';
+      mctx.fillRect(0, 0, cw, ch);
+    }
+
+    function scratch(x, y) {
+      // x/y are page coords; mid module starts at topH px down
+      const scale  = getScale();
+      const topH   = TOP_H * scale;
+      const cy     = y - topH;   // relative to mid module
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath(); ctx.arc(x, cy, BRUSH_SIZE, 0, Math.PI * 2); ctx.fill();
+      mctx.globalCompositeOperation = 'destination-out';
+      mctx.beginPath(); mctx.arc(x, cy, BRUSH_SIZE, 0, Math.PI * 2); mctx.fill();
+    }
+
+    function isScratched(x, y) {
+      const scale = getScale();
+      const topH  = TOP_H * scale;
+      const cy    = y - topH;
+      return mctx.getImageData(x, cy, 1, 1).data[3] < 64;
+    }
+
+    function forwardClick(x, y) {
+      canvas.style.pointerEvents = 'none';
+      const el = document.elementFromPoint(x, y);
+      canvas.style.pointerEvents = 'auto';
+      if (el && el !== canvas) el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+
+    let isDown = false, downX = 0, downY = 0;
+    canvas.addEventListener('mousedown', (e) => { isDown = true; downX = e.clientX; downY = e.clientY; scratch(e.clientX, e.clientY); });
+    canvas.addEventListener('mousemove', (e) => { if (isDown) scratch(e.clientX, e.clientY); });
+    window.addEventListener('mouseup', () => { isDown = false; });
+    canvas.addEventListener('click', (e) => {
+      if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) < 5 && isScratched(e.clientX, e.clientY))
+        forwardClick(e.clientX, e.clientY);
+    });
+
+    let touchStartX = 0, touchStartY = 0;
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); isDown = true; const t = e.touches[0]; touchStartX = t.clientX; touchStartY = t.clientY; scratch(t.clientX, t.clientY); }, { passive: false });
+    canvas.addEventListener('touchmove',  (e) => { e.preventDefault(); if (isDown) scratch(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    canvas.addEventListener('touchend',   (e) => {
+      isDown = false; const t = e.changedTouches[0];
+      if (Math.abs(t.clientX - touchStartX) + Math.abs(t.clientY - touchStartY) < 5 && isScratched(t.clientX, t.clientY))
+        forwardClick(t.clientX, t.clientY);
+    });
+
+    // ── Mouse parallax ──
+    const bgEl = document.getElementById('bg');
+    const MAX_SHIFT = 2.5, MAX_ROT = 5, STIFFNESS = 0.045, DAMPING = 0.62;
+    let tX = 0, tY = 0, posX = 0, posY = 0, velX = 0, velY = 0;
+
+    document.addEventListener('mousemove', (e) => {
+      tX =  (e.clientX / window.innerWidth)  * 2 - 1;
+      tY = -((e.clientY / window.innerHeight) * 2 - 1);
+    });
+
+    function animateParallax() {
+      const forceX = (tX - posX) * STIFFNESS;
+      const forceY = (tY - posY) * STIFFNESS;
+      velX = (velX + forceX) * DAMPING;
+      velY = (velY + forceY) * DAMPING;
+      posX += velX; posY += velY;
+      bgEl.style.transform =
+        `translateX(${posX * MAX_SHIFT}%) translateY(${posY * MAX_SHIFT}%) rotateY(${posX * MAX_ROT}deg) rotateX(${-posY * MAX_ROT}deg)`;
+      requestAnimationFrame(animateParallax);
+    }
+    animateParallax();
+
+    // ── BGM ──
+    const bgm = document.getElementById('bgm');
+    bgm.volume = 0.5;
+    let soundOn = true;
+
+    function tryPlay() { bgm.play().catch(() => {}); }
+    tryPlay();
+    document.addEventListener('pointerdown', tryPlay, { once: true });
+
+    const soundBtnImg = document.getElementById('btn-sound-img');
+    document.getElementById('btn-sound').addEventListener('click', () => {
+      soundOn = !soundOn;
+      if (soundOn) { bgm.play().catch(() => {}); soundBtnImg.src = 'btn_soundsetting_open.png'; }
+      else          { bgm.pause();                soundBtnImg.src = 'btn_soundsetting_close.png'; }
+    });
+
+    // ── Init & resize ──
+    window.addEventListener('resize', () => { layoutAll(); });
+    layoutAll();
+    drawCover();
+  </script>
+</body>
+</html>
